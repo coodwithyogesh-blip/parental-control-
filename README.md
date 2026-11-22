@@ -1,26 +1,20 @@
 # Phone Companion Parental Control
 
-A Telegram control/status companion running on the Android phone itself through Termux + Termux:API.
+Telegram menu for a companion agent running on Android with Termux + Termux:API. Owner-ID restricted; Android permissions and limitations apply.
 
-## Included
-- Battery status
-- Device/Android information
-- Wi-Fi connection details
-- Location request (only when the Android permission and location services allow it)
-- Torch toggle
-- Volume status / safe volume adjustment
-- Menu and owner-only Telegram access
+## Menu categories (15)
+Location, Battery, Device info, SMS, Microphone, Camera, Volume, Notifications, Wi-Fi, Clipboard, Contacts, Calendar, Torch, Vibration, Sensors.
 
-Sensitive actions such as remote camera/microphone capture, SMS harvesting, clipboard collection, and contact extraction are deliberately not implemented. Android permissions and visible device-user controls remain in force.
+Working API actions in this version: location, battery, device info, Wi-Fi connection info, torch, and vibration. Other buttons explain how to complete sensitive actions visibly on-device. Remote harvesting/capture of SMS, microphone, camera, clipboard, contacts, notifications, calendar, or sensor streams is not implemented.
 
-## Setup
-1. Install Termux and Termux:API from F-Droid.
-2. In Termux:
-   `pkg update -y && pkg upgrade -y`
-   `pkg install python termux-api -y`
-   `pip install -r requirements.txt`
-3. Create a Telegram bot with BotFather and copy its token.
-4. Copy `config.example.py` to `config.py`, enter bot token and your Telegram numeric user ID.
-5. Run: `python bot.py`
+## Install
+1. Install Termux and Termux:API (both apps).
+2. In Termux: `pkg update -y && pkg upgrade -y`
+3. `pkg install python termux-api -y`
+4. Clone repository: `git clone https://github.com/coodwithyogesh-blip/parental-control-.git`
+5. `cd parental-control-`
+6. `pip install -r requirements.txt`
+7. `cp config.example.py config.py` and edit token + numeric Telegram owner ID.
+8. `python bot.py`
 
-Keep Termux running and exempt it from battery optimization if appropriate. Do not publish your bot token.
+Do not commit `config.py` or share the bot token. Keep the device user aware of the companion agent and review Android permission prompts. Background execution may be restricted by Android.
