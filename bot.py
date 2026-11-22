@@ -1,112 +1,122 @@
-import json, subprocess, asyncio
+import json, subprocess
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from config import BOT_TOKEN, OWNER_ID
 
 MENU = ReplyKeyboardMarkup([
- ["📍 Location", "🔋 Battery"],
- ["📱 Device info", "📶 Wi-Fi"],
- ["🔦 Torch ON", "🔦 Torch OFF"],
- ["🔉 Volume", "➕ Volume"],
- ["➖ Volume", "ℹ️ Help"]
+ ["📍 Location", "🔋 Battery", "📱 Device"],
+ ["📩 SMS", "🎙 Microphone", "📷 Camera"],
+ ["🔉 Volume", "🔔 Notifications", "📶 Wi-Fi"],
+ ["📋 Clipboard", "👥 Contacts", "📅 Calendar"],
+ ["🔦 Torch ON", "🔦 Torch OFF", "📳 Vibrate"],
+ ["🧭 Sensors", "ℹ️ Help"]
 ], resize_keyboard=True)
 
-def run_api(cmd):
+def run_api(cmd, timeout=20):
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if p.returncode != 0:
-            return p.stderr.strip() or "Command failed."
+        p=subprocess.run(cmd,capture_output=True,text=True,timeout=timeout)
+        if p.returncode: return p.stderr.strip() or "Command failed."
         return p.stdout.strip() or "Done."
-    except Exception as e:
-        return str(e)
+    except Exception as e: return str(e)
 
 def get_json(cmd):
     out=run_api(cmd)
     try: return json.loads(out)
-    except: return out
+    except Exception: return out
 
 def owner(update):
-    return update.effective_user and update.effective_user.id == OWNER_ID
+    return update.effective_user and update.effective_user.id==OWNER_ID
 
 async def deny(update):
-    await update.message.reply_text("⛔ Access denied.")
+    if update.message: await update.message.reply_text("⛔ Access denied.")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update,context):
     if not owner(update): return await deny(update)
-    await update.message.reply_text("Phone Companion is ready. Select an action:", reply_markup=MENU)
+    await update.message.reply_text("Phone Companion parental-control menu. Device permissions and visible Android controls apply.",reply_markup=MENU)
 
-async def battery(update, context):
+async def battery(update,context):
     if not owner(update): return await deny(update)
     b=get_json(["termux-battery-status"])
     if isinstance(b,dict):
-        await update.message.reply_text(
-            f"🔋 Battery: {b.get('percentage','?')}%\n"
-            f"Status: {b.get('status','?')}\n"
-            f"Plugged: {b.get('plugged','?')}\n"
-            f"Temperature: {b.get('temperature','?')}°C")
-    else: await update.message.reply_text(b)
+        await update.message.reply_text(f"🔋 Battery: {b.get('percentage','?')}%\nStatus: {b.get('status','?')}\nPlugged: {b.get('plugged','?')}\nTemp: {b.get('temperature','?')}°C")
+    else: await update.message.reply_text(str(b))
 
-async def device(update, context):
+async def device(update,context):
     if not owner(update): return await deny(update)
-    info=run_api(["termux-info"])
-    await update.message.reply_text(info[:3500])
+    await update.message.reply_text(run_api(["termux-info"])[:3500])
 
-async def wifi(update, context):
+async def wifi(update,context):
     if not owner(update): return await deny(update)
-    data=get_json(["termux-wifi-connectioninfo"])
-    if isinstance(data,dict):
-        # Avoid exposing MAC/BSSID details by default.
-        msg=f"📶 Wi-Fi\nSSID: {data.get('ssid','?')}\nIP: {data.get('ip','?')}\nLink speed: {data.get('link_speed','?')} Mbps"
-    else: msg=data
-    await update.message.reply_text(msg)
+    d=get_json(["termux-wifi-connectioninfo"])
+    if isinstance(d,dict):
+        await update.message.reply_text(f"📶 Wi-Fi\nSSID: {d.get('ssid','?')}\nIP: {d.get('ip','?')}\nSpeed: {d.get('link_speed','?')} Mbps")
+    else: await update.message.reply_text(str(d))
 
-async def location(update, context):
+async def location(update,context):
     if not owner(update): return await deny(update)
-    await update.message.reply_text("Requesting location. Android location permission and location services must be enabled.")
-    result=get_json(["termux-location","-p","gps"])
-    if isinstance(result,dict):
-        lat=result.get("latitude"); lon=result.get("longitude")
-        if lat is not None and lon is not None:
-            await update.message.reply_text(f"📍 Location\nLatitude: {lat}\nLongitude: {lon}\nAccuracy: {result.get('accuracy','?')} m")
-        else: await update.message.reply_text(str(result))
-    else: await update.message.reply_text(result)
+    await update.message.reply_text("Requesting device location. Android location permission/services must be enabled.")
+    d=get_json(["termux-location","-p","gps"])
+    if isinstance(d,dict):
+        await update.message.reply_text(f"📍 Location\nLatitude: {d.get('latitude','?')}\nLongitude: {d.get('longitude','?')}\nAccuracy: {d.get('accuracy','?')} m")
+    else: await update.message.reply_text(str(d))
 
-async def torch(update, context, enabled):
+async def torch(update,context,on):
     if not owner(update): return await deny(update)
-    res=run_api(["termux-torch", "on" if enabled else "off"])
-    await update.message.reply_text("🔦 Torch ON" if enabled else "🔦 Torch OFF")
+    result=run_api(["termux-torch","on" if on else "off"])
+    await update.message.reply_text(("🔦 Torch ON" if on else "🔦 Torch OFF")+ ("\n"+result if result not in ("Done.","") else ""))
 
-async def volume(update, context):
+async def volume(update,context):
     if not owner(update): return await deny(update)
     await update.message.reply_text(run_api(["termux-volume"]))
 
-async def setvolume(update, context, delta):
+async def vibrate(update,context):
     if not owner(update): return await deny(update)
-    # Read current media volume, then adjust with Android API. Unsupported API
-    # versions may simply report an error; no privileged OS bypass is attempted.
-    await update.message.reply_text("Volume adjustment is not universally supported by Termux:API. Use the phone's volume keys if unavailable.")
+    await update.message.reply_text(run_api(["termux-vibrate","-d","500"]))
 
-async def help_cmd(update, context):
+async def sensors(update,context):
     if not owner(update): return await deny(update)
-    await update.message.reply_text("Available: location, battery, device info, Wi-Fi, torch toggle and volume status. Access is owner-ID restricted.")
+    await update.message.reply_text("🧭 Sensor request. Sensor access may expose device context. Run on the device and review permissions; remote sensor streaming is not enabled.")
 
-async def handle_text(update, context):
+async def calendar(update,context):
+    if not owner(update): return await deny(update)
+    await update.message.reply_text("📅 Calendar access isn't remotely read by this bot. Open the calendar on the phone or use an explicit on-device export.")
+
+async def notifications(update,context):
+    if not owner(update): return await deny(update)
+    await update.message.reply_text("🔔 Notification access can expose private messages. This bot does not remotely harvest notification contents. Review Android Notification Access on-device.")
+
+async def privacy_info(update,context,label):
+    if not owner(update): return await deny(update)
+    await update.message.reply_text(label+"\n\nThis sensitive action is not remotely collected by the bot. Use the phone's visible, user-initiated app/Android workflow and review permissions on-device.")
+
+async def help_cmd(update,context):
+    if not owner(update): return await deny(update)
+    await update.message.reply_text("15 categories: Location, Battery, Device, SMS, Microphone, Camera, Volume, Notifications, Wi-Fi, Clipboard, Contacts, Calendar, Torch, Vibration and Sensors. Access is owner-ID restricted. Sensitive content capture/export is not implemented.",reply_markup=MENU)
+
+async def handle_text(update,context):
     if not owner(update): return await deny(update)
     t=update.message.text
     if t=="📍 Location": await location(update,context)
     elif t=="🔋 Battery": await battery(update,context)
-    elif t=="📱 Device info": await device(update,context)
+    elif t=="📱 Device": await device(update,context)
     elif t=="📶 Wi-Fi": await wifi(update,context)
     elif t=="🔦 Torch ON": await torch(update,context,True)
     elif t=="🔦 Torch OFF": await torch(update,context,False)
     elif t=="🔉 Volume": await volume(update,context)
-    elif t in ("➕ Volume","➖ Volume"): await setvolume(update,context,1 if "➕" in t else -1)
+    elif t=="📳 Vibrate": await vibrate(update,context)
+    elif t=="🧭 Sensors": await sensors(update,context)
+    elif t=="📅 Calendar": await calendar(update,context)
+    elif t=="🔔 Notifications": await notifications(update,context)
+    elif t=="📩 SMS": await privacy_info(update,context,"📩 SMS: Remote reading/sending is disabled. Use the phone's visible SMS app.")
+    elif t=="🎙 Microphone": await privacy_info(update,context,"🎙 Microphone: Remote recording is disabled. Start recording visibly on the device.")
+    elif t=="📷 Camera": await privacy_info(update,context,"📷 Camera: Remote capture is disabled. Use the camera app visibly on the device.")
+    elif t=="📋 Clipboard": await privacy_info(update,context,"📋 Clipboard: Clipboard scraping is disabled. Share text intentionally from the device.")
+    elif t=="👥 Contacts": await privacy_info(update,context,"👥 Contacts: Remote extraction is disabled. Export/share contacts locally after reviewing.")
     elif t=="ℹ️ Help": await help_cmd(update,context)
-    else: await update.message.reply_text("Use the menu buttons.",reply_markup=MENU)
+    else: await update.message.reply_text("Use the menu.",reply_markup=MENU)
 
 def main():
-    if BOT_TOKEN=="PASTE_BOT_TOKEN_HERE" or not BOT_TOKEN:
-        raise SystemExit("Edit config.py and set BOT_TOKEN.")
+    if not BOT_TOKEN or BOT_TOKEN=="PASTE_BOT_TOKEN_HERE": raise SystemExit("Set BOT_TOKEN in config.py")
     app=Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("help",help_cmd))
